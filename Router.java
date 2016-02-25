@@ -98,83 +98,51 @@ public class Router extends Device
 
 		    // Serialize copypasta NEED TO TRIM
 		    
-		    byte[] buf = payload.serialize();
+		    short sum = payload.getChecksum();
+		    payload.resetChecksum();
 
-		    int length = buf.length;
-		    int i = 0;
-		    
-		    long sum = 0;
-		    long data;
-
-		    while(length > 1) {
-			data = (((buf[i] << 8) & 0xFF00) | ((buf[i + 1]) & 0xFF));
-			sum += data;
-			if((sum & 0xFFFF0000) > 0) {
-			    sum = sum & 0xFFFF;
-			    sum += 1;
-			}
-
-			i += 2;
-			length -= 2;
-		    }
-
-		    if(length > 0) {
-			sum += (buf[i] << 8 & 0xFF00);
-			if((sum & 0xFFFF0000) > 0) {
-			    sum = sum & 0xFFFF;
-			    sum += 1;
-			}
-		    }
-
-		    sum = ~sum;
-		    sum = sum & 0xFFFF;
-
-		    /*
-		      byte[] payloadData = null; */
-		    /*
+		    byte[] payloadData = null;
 		    if(payload != null) {
-			payload.setParent(this);
+			//payload.setParent(this);
 			payloadData = payload.serialize();
-			}*/
-		    
-		    /*
+		    }
+
 		    int optionsLength = 0;
 		    if(payload.getOptions() != null)
 			optionsLength = payload.getOptions().length / 4;
-		    payload.getHeaderLength() = (byte) (5 + optionsLength);
-
-		    payload.getTotalLength = (short) (payload.getHeaderLength() * 4 + ((payloadData == null) ? 0
-									 : payloadData.length));
+		    byte headerLength = (byte) (5 + optionsLength);
 		    
-		    byte[] data = new byte[payload.getHeaderLength()];
+		    short totalLength = (short) (headerLength * 4 + ((payloadData == null) ? 0 : payloadData.length));
+		    byte[] data = new byte[totalLength];
 		    ByteBuffer bb = ByteBuffer.wrap(data);
-		    
+
 		    bb.put((byte) (((payload.getVersion() & 0xf) << 4) | (payload.getHeaderLength() & 0xf)));
 		    bb.put(payload.getDiffServ());
 		    bb.putShort(payload.getTotalLength());
+		    bb.putShort(payload.getIdentification());
+		    bb.putShort((short) (((payload.getFlags() & 0x7) << 13) | (payload.getFragmentOffset() & 0x1fff)));
+		    bb.put(payload.getTtl());
+		    bb.put(payload.getProtocol());
+		    bb.putShort(payload.getChecksum());
 		    bb.putInt(payload.getSourceAddress());
 		    bb.putInt(payload.getDestinationAddress());
 		    if(payload.getOptions() != null)
 			bb.put(payload.getOptions());
 		    if(payloadData != null)
 			bb.put(payloadData);
-		    
+
 		    bb.rewind();
-		    */
-		    /*
-		    long accumulation = 0;
-		    for(int i = 0; i < 9; ++i) {
-			accumulation += ~bb.getShort();
+		    int accumulation = 0;
+		    for(int i = 0; i < payload.getHeaderLength() * 2; ++i) {
+			accumulation += 0xffff & bb.getShort();
 		    }
-		    accumulation = accumulation;
-		    */
-		    if(payload.getChecksum() == 0) {
-			System.out.println("CHECKSUM IS 0!!!");
-		    }
-		    System.out.println("Payload Checksum:\t" + payload.getChecksum());
-		    System.out.println("Calculated Checksum:\t" + sum);
+		    accumulation = ((accumulation >> 16) & 0xffff) + (accumulation & 0xffff);
+		    System.out.println("Accumulation: " + accumulation);
+		    payload.setChecksum((short) (~accumulation & 0xffff));
 		    
-		    if(payload.getChecksum() == sum) {
+		    // CHECKSUM PRINTS
+		    
+		    if(payload.getChecksum() != 0) {
 			System.out.println("Dropping Packet Due to Checksum\n");
 			return;
 		    }
@@ -201,13 +169,15 @@ public class Router extends Device
 
 		    // Make sure there is a matching RouteEntry
 		    RouteEntry routeLook = routeTable.lookup(payload.getDestinationAddress());
+		    System.out.println("Route Chosen: " + routeLook.toString());
 		    if(routeLook == null) {
 			System.out.println("Dropping Packet Due to the RouteEntry being null!\n");
 			return;
 		    }
 
 		    // ArpCache lookup
-		    ArpEntry arpLook = arpCache.lookup(routeLook.getDestinationAddress());
+		    ArpEntry arpLook = arpCache.lookup(payload.getDestinationAddress());
+		    System.out.println("Arp Chosen: " + arpLook.toString());
 
 		    // Set new packet MACs MACAddress
 		    etherPacket.setDestinationMACAddress(arpLook.getMac());
